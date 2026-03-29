@@ -16,7 +16,7 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-bricolage);
   --font-display: var(--font-dm-serif);
-  --font-mono: var(--font-jetbrains);
+  --font-mono: var(--font-bricolage);
 }
 
 @media (prefers-color-scheme: dark) {

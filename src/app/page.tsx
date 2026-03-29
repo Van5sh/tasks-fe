@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Modal from "../components/Modal";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 type Task = {
   id: string;
@@ -51,7 +51,37 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  if (!API_BASE) {
+    return (
+      <div className="min-h-screen bg-[linear-gradient(135deg,_#f8fafc_0%,_#fdf2e9_45%,_#eef2ff_100%)]">
+        <div className="bg-grid min-h-screen">
+          <div className="mx-auto flex min-h-screen w-full max-w-xl items-center justify-center px-6 py-12">
+            <section className="glass w-full rounded-3xl border border-white/60 p-8">
+              <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">
+                Setup Required
+              </p>
+              <h1 className="mt-2 font-[var(--font-display)] text-3xl text-[var(--ink)]">
+                Missing API base URL
+              </h1>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                Define the backend URL in your environment before starting the
+                frontend.
+              </p>
+              <div className="mt-4 rounded-2xl border border-zinc-100 bg-white/70 p-4 text-sm text-zinc-700">
+                <p className="font-semibold text-[var(--ink)]">
+                  Required env var
+                </p>
+                <p className="mt-1 font-mono">
+                  NEXT_PUBLIC_API_BASE=http://localhost:8000
+                </p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     const saved = localStorage.getItem("token");

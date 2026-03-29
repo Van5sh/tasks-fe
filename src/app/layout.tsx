@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, DM_Serif_Display, JetBrains_Mono } from "next/font/google";
+import { Bricolage_Grotesque, DM_Serif_Display } from "next/font/google";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -14,10 +14,6 @@ const dmSerif = DM_Serif_Display({
   weight: ["400"],
 });
 
-const jetbrains = JetBrains_Mono({
-  variable: "--font-jetbrains",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Tasks Console",
@@ -32,7 +28,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${bricolage.variable} ${dmSerif.variable} ${jetbrains.variable} h-full antialiased`}
+      className={`${bricolage.variable} ${dmSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
