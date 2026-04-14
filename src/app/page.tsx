@@ -1,25 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useEffectEvent, useState } from "react";
 import Modal from "../components/Modal";
+import type { AuthResponse, LoginRequest, RegisterRequest } from "../interfaces/auth";
+import type { Task, TaskInviteRequest } from "../interfaces/task";
+import type { AdminUser, LocalProfile, User } from "../interfaces/user";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
-
-type Task = {
-  id: string;
-  title: string;
-  description?: string | null;
-  completed: boolean;
-  created_at?: string;
-  updated_at?: string;
-};
-
-type User = {
-  id: string;
-  role: string;
-};
-
-const defaultRegister = {
+const defaultRegister: RegisterRequest = {
   username: "",
   email: "",
   password: "",
@@ -27,7 +15,7 @@ const defaultRegister = {
   gender: "Male",
 };
 
-const defaultLogin = {
+const defaultLogin: LoginRequest = {
   email: "",
   password: "",
 };
@@ -47,72 +35,47 @@ export default function Home() {
   const [editingForm, setEditingForm] = useState(defaultTask);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<LocalProfile>({});
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
-
-  if (!API_BASE) {
-    return (
-      <div className="min-h-screen bg-[linear-gradient(135deg,_#f8fafc_0%,_#fdf2e9_45%,_#eef2ff_100%)]">
-        <div className="bg-grid min-h-screen">
-          <div className="mx-auto flex min-h-screen w-full max-w-xl items-center justify-center px-6 py-12">
-            <section className="glass w-full rounded-3xl border border-white/60 p-8">
-              <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">
-                Setup Required
-              </p>
-              <h1 className="mt-2 font-[var(--font-display)] text-3xl text-[var(--ink)]">
-                Missing API base URL
-              </h1>
-              <p className="mt-2 text-sm text-[var(--muted)]">
-                Define the backend URL in your environment before starting the
-                frontend.
-              </p>
-              <div className="mt-4 rounded-2xl border border-zinc-100 bg-white/70 p-4 text-sm text-zinc-700">
-                <p className="font-semibold text-[var(--ink)]">
-                  Required env var
-                </p>
-                <p className="mt-1 font-mono">
-                  NEXT_PUBLIC_API_BASE=http://localhost:8000
-                </p>
-              </div>
-            </section>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  useEffect(() => {
-    const saved = localStorage.getItem("token");
-    if (saved) setToken(saved);
-  }, []);
-
-  useEffect(() => {
-    if (!token) return;
-    localStorage.setItem("token", token);
-    void fetchMe();
-    void fetchTasks();
-  }, [token]);
-
-  const headers = useMemo(() => {
-    const h: Record<string, string> = { "Content-Type": "application/json" };
-    if (token) h.Authorization = `Bearer ${token}`;
-    return h;
-  }, [token]);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteTask, setInviteTask] = useState<Task | null>(null);
+  const [inviteForm, setInviteForm] = useState<TaskInviteRequest>({ email: "" });
 
   const setStatus = (msg: string | null, err: string | null = null) => {
     setMessage(msg);
     setError(err);
   };
 
+  const saveProfile = (nextProfile: LocalProfile) => {
+    setProfile(nextProfile);
+    localStorage.setItem("auth_profile", JSON.stringify(nextProfile));
+  };
+
+  const displayName =
+    profile.username ||
+    profile.email?.split("@")[0] ||
+    user?.id ||
+    "User";
+
   const apiFetch = async <T,>(
     path: string,
     options: RequestInit = {}
   ): Promise<T> => {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const requestHeaders = new Headers(options.headers);
+    if (options.body && !requestHeaders.has("Content-Type")) {
+      requestHeaders.set("Content-Type", "application/json");
+    }
+    if (token) {
+      requestHeaders.set("Authorization", `Bearer ${token}`);
+    }
+
+    const res = await fetch(path, {
       ...options,
-      headers: { ...headers, ...(options.headers ?? {}) },
+      headers: requestHeaders,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -130,6 +93,12 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify(registerForm),
       });
+      saveProfile({
+        username: registerForm.username,
+        email: registerForm.email,
+        dob: registerForm.dob,
+        gender: registerForm.gender,
+      });
       setStatus("Registered successfully. You can log in now.");
       setMode("login");
       setRegisterForm(defaultRegister);
@@ -144,12 +113,21 @@ export default function Home() {
     setLoading(true);
     setStatus(null, null);
     try {
-      const data = await apiFetch<{ access_token: string }>(
+      const data = await apiFetch<AuthResponse>(
         "/api/v1/auth/login",
         {
           method: "POST",
           body: JSON.stringify(loginForm),
         }
+      );
+      const storedProfileRaw = localStorage.getItem("auth_profile");
+      const storedProfile = storedProfileRaw
+        ? (JSON.parse(storedProfileRaw) as LocalProfile)
+        : {};
+      saveProfile(
+        storedProfile.email === loginForm.email
+          ? { ...storedProfile, email: loginForm.email }
+          : { email: loginForm.email }
       );
       setToken(data.access_token);
       setStatus("Logged in.");
@@ -159,14 +137,6 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleLogout = () => {
-    setToken(null);
-    setUser(null);
-    setTasks([]);
-    localStorage.removeItem("token");
-    setStatus("Logged out.");
   };
 
   const fetchMe = async () => {
@@ -186,6 +156,28 @@ export default function Home() {
       setStatus(null, (err as Error).message);
     }
   };
+
+  const fetchAllUsers = async () => {
+    try {
+      const data = await apiFetch<AdminUser[]>("/api/v1/admin/users");
+      setAdminUsers(data);
+    } catch (err) {
+      setStatus(null, (err as Error).message);
+    }
+  };
+
+  const syncAuthenticatedState = useEffectEvent(() => {
+    void fetchMe();
+    void fetchTasks();
+  });
+
+  const syncAdminUsers = useEffectEvent(() => {
+    if (user?.role === "admin") {
+      void fetchAllUsers();
+    } else {
+      setAdminUsers([]);
+    }
+  });
 
   const handleCreateTask = async () => {
     setLoading(true);
@@ -253,6 +245,46 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  const handleInviteUser = async () => {
+    if (!inviteTask) return;
+    setLoading(true);
+    setStatus(null, null);
+    try {
+      const updated = await apiFetch<Task>(`/api/v1/tasks/${inviteTask.id}/invite`, {
+        method: "POST",
+        body: JSON.stringify(inviteForm),
+      });
+      setTasks((prev) => prev.map((task) => (task.id === updated.id ? updated : task)));
+      setInviteForm({ email: "" });
+      setInviteTask(null);
+      setShowInviteModal(false);
+      setStatus("User invited to task.");
+    } catch (err) {
+      setStatus(null, (err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const saved = localStorage.getItem("token");
+    if (saved) setToken(saved);
+    const savedProfile = localStorage.getItem("auth_profile");
+    if (savedProfile) {
+      setProfile(JSON.parse(savedProfile) as LocalProfile);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    localStorage.setItem("token", token);
+    syncAuthenticatedState();
+  }, [token]);
+
+  useEffect(() => {
+    syncAdminUsers();
+  }, [user?.role]);
 
   return (
     <div className="min-h-screen bg-[linear-gradient(135deg,_#f8fafc_0%,_#fdf2e9_45%,_#eef2ff_100%)]">
@@ -404,12 +436,12 @@ export default function Home() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={handleLogout}
+                <Link
+                  href="/profile"
                   className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800"
                 >
-                  Logout
-                </button>
+                  Profile
+                </Link>
               </div>
             </header>
 
@@ -422,7 +454,7 @@ export default function Home() {
                     </h2>
                     <p className="text-sm text-[var(--muted)]">
                       {user
-                        ? `Signed in as ${user.id} (${user.role})`
+                        ? `Signed in as ${displayName} (${user.role})`
                         : "Loading profile..."}
                     </p>
                   </div>
@@ -486,6 +518,21 @@ export default function Home() {
                                 <p className="text-sm text-zinc-600">
                                   {task.description || "No description"}
                                 </p>
+                                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                  <span className="rounded-full bg-zinc-100 px-3 py-1 font-semibold text-zinc-700">
+                                    {task.access === "admin" ? "Admin access" : "Normal access"}
+                                  </span>
+                                  {task.invited_users.length > 0 ? (
+                                    <span>
+                                      Invited:{" "}
+                                      {task.invited_users
+                                        .map((invitedUser) => invitedUser.email)
+                                        .join(", ")}
+                                    </span>
+                                  ) : (
+                                    <span>No invited users</span>
+                                  )}
+                                </div>
                               </>
                             )}
                           </div>
@@ -519,30 +566,48 @@ export default function Home() {
                               </>
                             ) : (
                               <>
-                                <button
-                                  onClick={() => handleToggleComplete(task)}
-                                  className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-600"
-                                >
-                                  Toggle
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setEditingId(task.id);
-                                    setEditingForm({
-                                      title: task.title,
-                                      description: task.description ?? "",
-                                    });
-                                  }}
-                                  className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-600"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteTask(task.id)}
-                                  className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700"
-                                >
-                                  Delete
-                                </button>
+                                {task.access === "admin" ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleToggleComplete(task)}
+                                      className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-600"
+                                    >
+                                      Toggle
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingId(task.id);
+                                        setEditingForm({
+                                          title: task.title,
+                                          description: task.description ?? "",
+                                        });
+                                      }}
+                                      className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-600"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setInviteTask(task);
+                                        setInviteForm({ email: "" });
+                                        setShowInviteModal(true);
+                                      }}
+                                      className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-600"
+                                    >
+                                      Invite
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteTask(task.id)}
+                                      className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700"
+                                    >
+                                      Delete
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-500">
+                                    View only
+                                  </span>
+                                )}
                               </>
                             )}
                           </div>
@@ -578,6 +643,42 @@ export default function Home() {
                       </p>
                     ) : null}
                   </div>
+                  {user?.role === "admin" ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white/80 p-4 text-sm text-zinc-700">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-[var(--ink)]">
+                          Admin: Users
+                        </p>
+                        <button
+                          onClick={fetchAllUsers}
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400"
+                        >
+                          Refresh
+                        </button>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {adminUsers.length === 0 ? (
+                          <p className="text-xs text-zinc-500">
+                            No users loaded yet.
+                          </p>
+                        ) : (
+                          adminUsers.map((u) => (
+                            <div
+                              key={u.id}
+                              className="rounded-xl border border-zinc-100 bg-white px-3 py-2"
+                            >
+                              <p className="text-xs font-semibold text-[var(--ink)]">
+                                {u.username ?? "Unnamed"}
+                              </p>
+                              <p className="text-xs text-zinc-500">
+                                {u.email ?? "no-email"} · {u.role ?? "user"}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </section>
             </div>
@@ -623,6 +724,49 @@ export default function Home() {
               setTaskForm({ ...taskForm, description: value })
             }
           />
+        </div>
+      </Modal>
+
+      <Modal
+        open={showInviteModal}
+        title={inviteTask ? `Invite to ${inviteTask.title}` : "Invite user"}
+        onClose={() => {
+          setShowInviteModal(false);
+          setInviteTask(null);
+          setInviteForm({ email: "" });
+        }}
+        footer={
+          <>
+            <button
+              onClick={handleInviteUser}
+              disabled={!inviteTask || !inviteForm.email || loading}
+              className="rounded-full bg-black px-5 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-60"
+            >
+              Send invite
+            </button>
+            <button
+              onClick={() => {
+                setShowInviteModal(false);
+                setInviteTask(null);
+                setInviteForm({ email: "" });
+              }}
+              className="rounded-full border border-zinc-200 bg-white px-5 py-2 text-sm font-semibold text-zinc-600"
+            >
+              Cancel
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <Input
+            label="User email"
+            type="email"
+            value={inviteForm.email}
+            onChange={(value) => setInviteForm({ email: value })}
+          />
+          <p className="text-sm text-zinc-500">
+            The task creator has admin access. Invited users get normal access only.
+          </p>
         </div>
       </Modal>
     </div>
